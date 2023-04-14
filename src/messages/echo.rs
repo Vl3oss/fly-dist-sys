@@ -2,27 +2,42 @@ use crate::node::Node;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{Body, MsgId};
+use super::{Message, MsgId};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct EchoBody {
-    pub msg_id: MsgId,
-    pub echo: Value,
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EchoBody {
+    Echo { msg_id: MsgId, echo: Value },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct EchoOkBody {
-    pub msg_id: MsgId,
-    in_reply_to: MsgId,
-    echo: Value,
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EchoOkBody {
+    EchoOk {
+        msg_id: MsgId,
+        in_reply_to: MsgId,
+        echo: Value,
+    },
 }
 
-pub fn handle(_node: &Node, EchoBody { echo, msg_id }: EchoBody) -> Option<Body> {
-    let body = EchoOkBody {
+pub fn handle(_node: &Node, msg: &String) -> Option<String> {
+    let Message {
+        body: EchoBody::Echo { echo, msg_id },
+        src,
+        dest,
+    } = serde_json::from_str::<Message<EchoBody>>(&msg).unwrap();
+
+    let body = EchoOkBody::EchoOk {
         msg_id, // TODO: Have to increment this
         in_reply_to: msg_id,
         echo,
     };
 
-    Some(Body::EchoOk(body))
+    let resp_message = Message {
+        body,
+        src: dest,
+        dest: src,
+    };
+
+    Some(serde_json::to_string(&resp_message).unwrap())
 }
