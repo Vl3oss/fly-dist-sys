@@ -19,7 +19,7 @@ pub enum InitOkBody {
     InitOk { msg_id: MsgId, in_reply_to: MsgId },
 }
 
-pub fn handle(node: &mut Node, msg: &String) -> Option<String> {
+pub fn handle<S>(node: &mut Node<S>, msg: &String) -> Option<String> {
     let Message {
         body:
             InitBody::Init {

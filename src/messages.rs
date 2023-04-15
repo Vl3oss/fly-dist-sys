@@ -1,5 +1,6 @@
 pub mod echo;
 pub mod error;
+pub mod generate;
 pub mod init;
 
 use serde::{Deserialize, Serialize};

@@ -11,20 +11,22 @@ enum NodeState {
     Initialized,
 }
 
-pub struct Node {
+pub struct Node<S = ()> {
     pub node_id: Option<NodeId>,
     pub node_ids: Vec<NodeId>,
-    handlers: HashMap<String, Box<dyn Fn(&Node, &String) -> Option<String>>>,
-    state: NodeState,
+    handlers: HashMap<String, Box<dyn Fn(&Node<S>, &String) -> Option<String>>>,
+    node_state: NodeState,
+    pub state: Option<S>,
 }
 
-impl Node {
+impl<S> Node<S> {
     pub fn new() -> Self {
         Node {
             node_id: None,
             node_ids: vec![],
             handlers: HashMap::new(),
-            state: NodeState::Uninitialized,
+            node_state: NodeState::Uninitialized,
+            state: None,
         }
     }
 
@@ -38,10 +40,10 @@ impl Node {
     pub fn initialize(self: &mut Self, node_id: NodeId, node_ids: Vec<NodeId>) -> () {
         self.node_id = Some(node_id);
         self.node_ids = node_ids;
-        self.state = NodeState::Initialized;
+        self.node_state = NodeState::Initialized;
     }
 
-    fn try_handler_init(self: &mut Self, msg: &String) -> Option<String> {
+    fn try_handle_init(self: &mut Self, msg: &String) -> Option<String> {
         let t = Message::extract_type_from_string(&msg).unwrap();
 
         if t != "init" {
@@ -53,7 +55,7 @@ impl Node {
 
     pub fn add_handler<H>(self: &mut Self, t: String, handler: H) -> ()
     where
-        H: Fn(&Node, &String) -> Option<String> + 'static,
+        H: Fn(&Self, &String) -> Option<String> + 'static,
     {
         HashMap::insert(&mut self.handlers, t, Box::new(handler));
     }
@@ -70,12 +72,18 @@ impl Node {
         println!("{}", msg);
     }
 
+    pub fn with_state(mut self: Self, state: S) -> Self {
+        self.state = Some(state);
+
+        self
+    }
+
     pub fn handle_loop(self: &mut Self) -> ! {
         loop {
             let req_msg = self.read();
 
-            let res_msg = match self.state {
-                NodeState::Uninitialized => self.try_handler_init(&req_msg),
+            let res_msg = match self.node_state {
+                NodeState::Uninitialized => self.try_handle_init(&req_msg),
                 NodeState::Initialized => self.handle(&req_msg),
             };
 
