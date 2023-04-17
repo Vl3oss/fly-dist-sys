@@ -1,5 +1,5 @@
 use crate::node::{Node, NodeId};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{Message, MsgId};
 
@@ -19,7 +19,10 @@ pub enum InitOkBody {
     InitOk { msg_id: MsgId, in_reply_to: MsgId },
 }
 
-pub fn handle<S>(node: &mut Node<S>, msg: &String) -> Option<String> {
+pub fn handle<S, B>(node: &mut Node<S, B>, req_str: &String) -> Option<String>
+where
+    B: Serialize + DeserializeOwned,
+{
     let Message {
         body:
             InitBody::Init {
@@ -29,7 +32,7 @@ pub fn handle<S>(node: &mut Node<S>, msg: &String) -> Option<String> {
             },
         src,
         dest,
-    } = serde_json::from_str::<Message<InitBody>>(&msg).unwrap();
+    } = serde_json::from_str::<Message<InitBody>>(&req_str).unwrap();
 
     node.initialize(node_id, node_ids);
 

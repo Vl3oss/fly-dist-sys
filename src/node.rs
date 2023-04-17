@@ -1,4 +1,7 @@
-use crate::messages::{self, Message};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
+use crate::messages::{self, CommonBody, Message};
 use std::collections::HashMap;
 use std::io::stdin;
 use std::ops::Deref;
@@ -11,15 +14,18 @@ enum NodeState {
     Initialized,
 }
 
-pub struct Node<S = ()> {
+pub struct Node<S = (), B = CommonBody> {
     pub node_id: Option<NodeId>,
     pub node_ids: Vec<NodeId>,
-    handlers: HashMap<String, Box<dyn Fn(&Node<S>, &String) -> Option<String>>>,
+    handlers: HashMap<String, Box<dyn Fn(&Node<S, B>, Message<B>) -> Option<Message<B>>>>,
     node_state: NodeState,
     pub state: Option<S>,
 }
 
-impl<S> Node<S> {
+impl<S, B> Node<S, B>
+where
+    B: Serialize + DeserializeOwned,
+{
     pub fn new() -> Self {
         Node {
             node_id: None,
@@ -43,29 +49,32 @@ impl<S> Node<S> {
         self.node_state = NodeState::Initialized;
     }
 
-    fn try_handle_init(self: &mut Self, msg: &String) -> Option<String> {
-        let t = Message::extract_type_from_string(&msg).unwrap();
+    fn try_handle_init(self: &mut Self, req_str: &String) -> Option<String> {
+        let t = Message::extract_type_from_string(&req_str).unwrap();
 
         if t != "init" {
             panic!("Invalid initialized message type: {}", t)
         }
 
-        messages::init::handle(self, &msg)
+        messages::init::handle(self, &req_str)
     }
 
     pub fn add_handler<H>(self: &mut Self, t: String, handler: H) -> ()
     where
-        H: Fn(&Self, &String) -> Option<String> + 'static,
+        H: Fn(&Self, Message<B>) -> Option<Message<B>> + 'static,
     {
         HashMap::insert(&mut self.handlers, t, Box::new(handler));
     }
 
-    fn handle(self: &Self, msg: &String) -> Option<String> {
-        let t = Message::extract_type_from_string(&msg).unwrap();
+    fn handle(self: &Self, req_str: &String) -> Option<String> {
+        let t = Message::extract_type_from_string(&req_str).unwrap();
 
         let handler = HashMap::get(&self.handlers, &t).unwrap().deref();
 
-        handler(self, &msg)
+        let req_msg = serde_json::from_str(req_str).unwrap();
+        let res_msg = handler(self, req_msg);
+
+        res_msg.map(|m| serde_json::to_string(&m).unwrap())
     }
 
     fn send(self: &Self, msg: String) -> () {
@@ -80,11 +89,11 @@ impl<S> Node<S> {
 
     pub fn main_loop(self: &mut Self) -> ! {
         loop {
-            let req_msg = self.read();
+            let req_str = self.read();
 
             let res_msg = match self.node_state {
-                NodeState::Uninitialized => self.try_handle_init(&req_msg),
-                NodeState::Initialized => self.handle(&req_msg),
+                NodeState::Uninitialized => self.try_handle_init(&req_str),
+                NodeState::Initialized => self.handle(&req_str),
             };
 
             if let Some(msg) = res_msg {

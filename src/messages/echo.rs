@@ -4,17 +4,14 @@ use serde_json::Value;
 use super::MsgId;
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum EchoBody {
-    Echo { msg_id: MsgId, echo: Value },
+pub struct EchoBody {
+    pub msg_id: MsgId,
+    pub echo: Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum EchoOkBody {
-    EchoOk {
-        msg_id: MsgId,
-        in_reply_to: MsgId,
-        echo: Value,
-    },
+pub struct EchoOkBody {
+    pub msg_id: MsgId,
+    pub in_reply_to: MsgId,
+    pub echo: Value,
 }

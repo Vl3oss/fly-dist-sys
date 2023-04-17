@@ -9,82 +9,103 @@ use fly_dist_rs::{
     },
     node::{Node, NodeId},
 };
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Body {
+    Broadcast(BroadcastBody),
+    BroadcastOk(BroadcastOkBody),
+    Read(ReadBody),
+    ReadOk(ReadOkBody),
+    Topology(TopologyBody),
+    TopologyOk(TopologyOkBody),
+}
 
 pub struct State {
     topology: HashMap<NodeId, Vec<NodeId>>,
     values: Vec<i32>,
 }
 
-pub fn handle_topology(node: &Node<RefCell<State>>, msg: &String) -> Option<String> {
-    let Message {
-        body: TopologyBody::Topology { msg_id, topology },
-        src,
-        dest,
-    } = serde_json::from_str::<Message<TopologyBody>>(&msg).unwrap();
+pub fn handle_topology(
+    node: &Node<RefCell<State>, Body>,
+    msg: Message<Body>,
+) -> Option<Message<Body>> {
+    let (TopologyBody { msg_id, topology }, src, dest) = match msg {
+        Message {
+            src,
+            dest,
+            body: Body::Topology(body),
+        } => (body, src, dest),
+        _ => unreachable!(),
+    };
 
     let mut state = node.state.as_ref().unwrap().borrow_mut();
     state.topology = topology;
 
-    let body = TopologyOkBody::TopologyOk {
+    let body = Body::TopologyOk(TopologyOkBody {
         in_reply_to: msg_id,
         msg_id: msg_id + 1,
-    };
+    });
 
-    let resp_message = Message {
+    Some(Message {
         body,
         src: dest,
         dest: src,
-    };
-
-    Some(serde_json::to_string(&resp_message).unwrap())
+    })
 }
 
-pub fn handle_broadcast(node: &Node<RefCell<State>>, msg: &String) -> Option<String> {
-    let Message {
-        body: BroadcastBody::Broadcast { msg_id, message },
-        src,
-        dest,
-    } = serde_json::from_str::<Message<BroadcastBody>>(&msg).unwrap();
+pub fn handle_broadcast(
+    node: &Node<RefCell<State>, Body>,
+    msg: Message<Body>,
+) -> Option<Message<Body>> {
+    let (BroadcastBody { msg_id, message }, src, dest) = match msg {
+        Message {
+            src,
+            dest,
+            body: Body::Broadcast(body),
+        } => (body, src, dest),
+        _ => unreachable!(),
+    };
 
     let mut state = node.state.as_ref().unwrap().borrow_mut();
     state.values.push(message);
 
-    let body = BroadcastOkBody::BroadcastOk {
+    let body = Body::BroadcastOk(BroadcastOkBody {
         in_reply_to: msg_id,
         msg_id: msg_id + 1,
-    };
+    });
 
-    let resp_message = Message {
+    Some(Message {
         body,
         src: dest,
         dest: src,
-    };
-
-    Some(serde_json::to_string(&resp_message).unwrap())
+    })
 }
 
-pub fn handle_read(node: &Node<RefCell<State>>, msg: &String) -> Option<String> {
-    let Message {
-        body: ReadBody::Read { msg_id },
-        src,
-        dest,
-    } = serde_json::from_str::<Message<ReadBody>>(&msg).unwrap();
+pub fn handle_read(node: &Node<RefCell<State>, Body>, msg: Message<Body>) -> Option<Message<Body>> {
+    let (ReadBody { msg_id }, src, dest) = match msg {
+        Message {
+            src,
+            dest,
+            body: Body::Read(body),
+        } => (body, src, dest),
+        _ => unreachable!(),
+    };
 
     let state = node.state.as_ref().unwrap().borrow();
 
-    let body = ReadOkBody::ReadOk {
+    let body = Body::ReadOk(ReadOkBody {
         in_reply_to: msg_id,
         msg_id: msg_id + 1,
         messages: state.values.clone(),
-    };
+    });
 
-    let resp_message = Message {
+    Some(Message {
         body,
         src: dest,
         dest: src,
-    };
-
-    Some(serde_json::to_string(&resp_message).unwrap())
+    })
 }
 
 fn main() {

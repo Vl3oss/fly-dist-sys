@@ -5,27 +5,36 @@ use fly_dist_rs::{
     },
     node::Node,
 };
+use serde::{Deserialize, Serialize};
 
-pub fn handle(_node: &Node, msg: &String) -> Option<String> {
-    let Message {
-        body: EchoBody::Echo { echo, msg_id },
-        src,
-        dest,
-    } = serde_json::from_str::<Message<EchoBody>>(&msg).unwrap();
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Body {
+    Echo(EchoBody),
+    EchoOk(EchoOkBody),
+}
 
-    let body = EchoOkBody::EchoOk {
+pub fn handle(_node: &Node<(), Body>, msg: Message<Body>) -> Option<Message<Body>> {
+    let (EchoBody { echo, msg_id }, src, dest) = match msg {
+        Message {
+            src,
+            dest,
+            body: Body::Echo(body),
+        } => (body, src, dest),
+        _ => unreachable!(),
+    };
+
+    let body = Body::EchoOk(EchoOkBody {
         msg_id: msg_id + 1,
         in_reply_to: msg_id,
         echo,
-    };
+    });
 
-    let resp_message = Message {
+    Some(Message {
         body,
         src: dest,
         dest: src,
-    };
-
-    Some(serde_json::to_string(&resp_message).unwrap())
+    })
 }
 
 fn main() {

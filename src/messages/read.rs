@@ -3,17 +3,13 @@ use serde::{Deserialize, Serialize};
 use super::MsgId;
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ReadBody {
-    Read { msg_id: MsgId },
+pub struct ReadBody {
+    pub msg_id: MsgId,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ReadOkBody {
-    ReadOk {
-        in_reply_to: MsgId,
-        msg_id: MsgId,
-        messages: Vec<i32>,
-    },
+pub struct ReadOkBody {
+    pub in_reply_to: MsgId,
+    pub msg_id: MsgId,
+    pub messages: Vec<i32>,
 }

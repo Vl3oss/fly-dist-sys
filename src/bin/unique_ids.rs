@@ -7,34 +7,43 @@ use fly_dist_rs::{
     },
     node::Node,
 };
+use serde::{Deserialize, Serialize};
 
 pub struct State {
     count: RefCell<u32>,
 }
 
-pub fn handle(node: &Node<State>, msg: &String) -> Option<String> {
-    let Message {
-        body: GenerateBody::Generate { msg_id },
-        src,
-        dest,
-    } = serde_json::from_str::<Message<GenerateBody>>(&msg).unwrap();
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Body {
+    Generate(GenerateBody),
+    GenerateOk(GenerateOkBody),
+}
+
+pub fn handle(node: &Node<State, Body>, msg: Message<Body>) -> Option<Message<Body>> {
+    let (GenerateBody { msg_id }, src, dest) = match msg {
+        Message {
+            src,
+            dest,
+            body: Body::Generate(body),
+        } => (body, src, dest),
+        _ => unreachable!(),
+    };
 
     let mut count = node.state.as_ref().unwrap().count.borrow_mut();
     let id = node.node_id.clone().unwrap() + &count.clone().to_string();
     *count += 1;
 
-    let body = GenerateOkBody::GenerateOk {
+    let body = Body::GenerateOk(GenerateOkBody {
         in_reply_to: msg_id,
         id,
-    };
+    });
 
-    let resp_message = Message {
+    Some(Message {
         body,
         src: dest,
         dest: src,
-    };
-
-    Some(serde_json::to_string(&resp_message).unwrap())
+    })
 }
 
 fn main() {
