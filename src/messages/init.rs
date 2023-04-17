@@ -3,7 +3,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{Message, MsgId};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InitBody {
     Init {
@@ -13,7 +13,7 @@ pub enum InitBody {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InitOkBody {
     InitOk { msg_id: MsgId, in_reply_to: MsgId },

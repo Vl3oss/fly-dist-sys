@@ -4,7 +4,6 @@ use serde::Serialize;
 use crate::messages::{self, CommonBody, Message};
 use std::collections::HashMap;
 use std::io::stdin;
-use std::ops::Deref;
 
 pub type NodeId = String;
 
@@ -68,17 +67,26 @@ where
 
     fn handle(self: &Self, req_str: &String) -> Option<String> {
         let t = Message::extract_type_from_string(&req_str).unwrap();
+        let handler = HashMap::get(&self.handlers, &t);
 
-        let handler = HashMap::get(&self.handlers, &t).unwrap().deref();
+        if handler.is_none() {
+            eprintln!("Skip handling unknown message type: '{}'", t);
+            return None;
+        }
+        let handler = handler.unwrap();
 
         let req_msg = serde_json::from_str(req_str).unwrap();
-        let res_msg = handler(self, req_msg);
+        let res_msg = (handler)(self, req_msg);
 
         res_msg.map(|m| serde_json::to_string(&m).unwrap())
     }
 
     fn send(self: &Self, msg: String) -> () {
         println!("{}", msg);
+    }
+
+    pub fn send_msg(self: &Self, msg: Message<B>) -> () {
+        self.send(serde_json::to_string(&msg).unwrap());
     }
 
     pub fn with_state(mut self: Self, state: S) -> Self {
