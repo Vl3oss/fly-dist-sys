@@ -45,9 +45,9 @@ where
         msg_raw
     }
 
-    pub fn read_loop<H>(self: &mut Self, on_msg: H) -> !
+    pub fn read_loop<H>(self: &Self, on_msg: H) -> !
     where
-        H: Fn(&mut Self, String) -> (),
+        H: Fn(&Self, String) -> (),
     {
         loop {
             let msg_str = self.read();
@@ -149,15 +149,16 @@ where
     }
 
     pub fn main_loop(self: &mut Self) -> ! {
-        self.read_loop(|node, req_str| {
-            let res_msg = match node.node_state {
-                NodeState::Uninitialized => node.try_handle_init(&req_str),
-                NodeState::Initialized { .. } => node.handle(&req_str),
+        loop {
+            let req_str = self.read();
+            let res_msg = match self.node_state {
+                NodeState::Uninitialized => self.try_handle_init(&req_str),
+                NodeState::Initialized { .. } => self.handle(&req_str),
             };
 
             if let Some(msg) = res_msg {
-                node.send(msg);
+                self.send(msg);
             }
-        })
+        }
     }
 }
