@@ -48,8 +48,10 @@ fn on_recv_val(node: &BroadcastNode, val: Val, known_nodes: HashSet<String>) -> 
     let mut state = node.state.as_ref().unwrap().borrow_mut();
     state.add_new_val(val);
 
+    let node_id = node.node_id();
+
     let topology = &state.topology;
-    let friends: &Vec<_> = HashMap::get(topology, node.node_id.as_ref().unwrap()).unwrap();
+    let friends: &Vec<_> = HashMap::get(topology, node_id).unwrap();
 
     let not_known_friends = friends.iter().filter(|&x| !known_nodes.contains(x));
 
@@ -57,7 +59,7 @@ fn on_recv_val(node: &BroadcastNode, val: Val, known_nodes: HashSet<String>) -> 
     friends.iter().for_each(|n| {
         new_known_nodes.insert(n.to_string());
     });
-    new_known_nodes.insert(node.node_id.clone().unwrap());
+    new_known_nodes.insert(node_id.to_string());
 
     let res_body = Body::Propagate {
         value: val,
@@ -66,7 +68,7 @@ fn on_recv_val(node: &BroadcastNode, val: Val, known_nodes: HashSet<String>) -> 
 
     for dest in not_known_friends {
         node.send_msg(Message {
-            src: node.node_id.clone().unwrap(),
+            src: node_id.clone(),
             dest: dest.clone(),
             body: res_body.clone(),
         })

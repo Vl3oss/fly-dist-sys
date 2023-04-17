@@ -31,7 +31,8 @@ pub fn handle(node: &Node<State, Body>, msg: Message<Body>) -> Option<Message<Bo
     };
 
     let mut count = node.state.as_ref().unwrap().count.borrow_mut();
-    let id = node.node_id.clone().unwrap() + &count.clone().to_string();
+    let node_id = node.node_id();
+    let id = node_id.to_string() + &count.clone().to_string();
     *count += 1;
 
     let body = Body::GenerateOk(GenerateOkBody {

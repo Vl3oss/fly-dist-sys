@@ -1,21 +1,26 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::messages::{self, CommonBody, Message};
+use crate::messages::init::{InitBody, InitOkBody};
+use crate::messages::{CommonBody, Message};
 use std::collections::HashMap;
 use std::io::stdin;
 
 pub type NodeId = String;
 
 #[derive(Debug, PartialEq)]
+struct NodeConfig {
+    node_id: NodeId,
+    node_ids: Vec<NodeId>,
+}
+
+#[derive(Debug, PartialEq)]
 enum NodeState {
     Uninitialized,
-    Initialized,
+    Initialized(NodeConfig),
 }
 
 pub struct Node<S = (), B = CommonBody> {
-    pub node_id: Option<NodeId>,
-    pub node_ids: Vec<NodeId>,
     handlers: HashMap<String, Box<dyn Fn(&Node<S, B>, Message<B>) -> Option<Message<B>>>>,
     node_state: NodeState,
     pub state: Option<S>,
@@ -27,8 +32,6 @@ where
 {
     pub fn new() -> Self {
         Node {
-            node_id: None,
-            node_ids: vec![],
             handlers: HashMap::new(),
             node_state: NodeState::Uninitialized,
             state: None,
@@ -53,9 +56,25 @@ where
     }
 
     pub fn initialize(self: &mut Self, node_id: NodeId, node_ids: Vec<NodeId>) -> () {
-        self.node_id = Some(node_id);
-        self.node_ids = node_ids;
-        self.node_state = NodeState::Initialized;
+        self.node_state = NodeState::Initialized(NodeConfig { node_id, node_ids })
+    }
+
+    pub fn node_id(self: &Self) -> &NodeId {
+        let node_id = match &self.node_state {
+            NodeState::Uninitialized => panic!("Node is uninitialized"),
+            NodeState::Initialized(config) => &config.node_id,
+        };
+
+        node_id
+    }
+
+    pub fn node_ids(self: &Self) -> &Vec<NodeId> {
+        let node_ids = match &self.node_state {
+            NodeState::Uninitialized => panic!("Node is uninitialized"),
+            NodeState::Initialized(config) => &config.node_ids,
+        };
+
+        node_ids
     }
 
     fn try_handle_init(self: &mut Self, req_str: &String) -> Option<String> {
@@ -65,7 +84,31 @@ where
             panic!("Invalid initialized message type: {}", t)
         }
 
-        messages::init::handle(self, &req_str)
+        let Message {
+            body:
+                InitBody::Init {
+                    node_id,
+                    node_ids,
+                    msg_id,
+                },
+            src,
+            dest,
+        } = serde_json::from_str::<Message<InitBody>>(&req_str).unwrap();
+
+        self.initialize(node_id, node_ids);
+
+        let body = InitOkBody::InitOk {
+            msg_id: msg_id + 1,
+            in_reply_to: msg_id,
+        };
+
+        let resp_message = Message {
+            src: dest,
+            dest: src,
+            body,
+        };
+
+        Some(serde_json::to_string(&resp_message).unwrap())
     }
 
     pub fn add_handler<H>(self: &mut Self, t: String, handler: H) -> ()
