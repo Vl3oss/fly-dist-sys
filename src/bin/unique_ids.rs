@@ -10,7 +10,7 @@ use fly_dist_rs::{
 use serde::{Deserialize, Serialize};
 
 pub struct State {
-    count: RefCell<u32>,
+    count: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,7 +20,7 @@ pub enum Body {
     GenerateOk(GenerateOkBody),
 }
 
-pub fn handle(node: &Node<State, Body>, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle(node: &Node<RefCell<State>, Body>, msg: Message<Body>) -> Option<Message<Body>> {
     let (GenerateBody { msg_id }, src, dest) = match msg {
         Message {
             src,
@@ -30,10 +30,12 @@ pub fn handle(node: &Node<State, Body>, msg: Message<Body>) -> Option<Message<Bo
         _ => unreachable!(),
     };
 
-    let mut count = node.state.as_ref().unwrap().count.borrow_mut();
     let node_id = node.node_id();
+    let mut state = node.state.as_ref().unwrap().borrow_mut();
+    let count = state.count;
+
     let id = node_id.to_string() + &count.clone().to_string();
-    *count += 1;
+    *state = State { count: count + 1 };
 
     let body = Body::GenerateOk(GenerateOkBody {
         in_reply_to: msg_id,
@@ -48,10 +50,8 @@ pub fn handle(node: &Node<State, Body>, msg: Message<Body>) -> Option<Message<Bo
 }
 
 fn main() {
-    let state = State {
-        count: RefCell::new(0),
-    };
-    let mut node = Node::new().with_state(state);
+    let state = State { count: 0 };
+    let mut node = Node::new().with_state(RefCell::new(state));
 
     node.add_handler("generate".to_string(), handle);
 
