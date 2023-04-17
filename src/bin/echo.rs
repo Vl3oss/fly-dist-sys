@@ -14,7 +14,7 @@ pub fn handle(_node: &Node, msg: &String) -> Option<String> {
     } = serde_json::from_str::<Message<EchoBody>>(&msg).unwrap();
 
     let body = EchoOkBody::EchoOk {
-        msg_id, // TODO: Have to increment this
+        msg_id: msg_id + 1,
         in_reply_to: msg_id,
         echo,
     };
@@ -33,5 +33,5 @@ fn main() {
 
     node.add_handler("echo".to_string(), handle);
 
-    node.handle_loop()
+    node.main_loop()
 }

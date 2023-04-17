@@ -34,7 +34,7 @@ pub fn handle<S>(node: &mut Node<S>, msg: &String) -> Option<String> {
     node.initialize(node_id, node_ids);
 
     let body = InitOkBody::InitOk {
-        msg_id, // TODO: Have to increment this
+        msg_id: msg_id + 1,
         in_reply_to: msg_id,
     };
 

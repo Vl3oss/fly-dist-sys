@@ -78,7 +78,7 @@ impl<S> Node<S> {
         self
     }
 
-    pub fn handle_loop(self: &mut Self) -> ! {
+    pub fn main_loop(self: &mut Self) -> ! {
         loop {
             let req_msg = self.read();
 

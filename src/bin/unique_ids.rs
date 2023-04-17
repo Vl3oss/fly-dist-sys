@@ -45,5 +45,5 @@ fn main() {
 
     node.add_handler("generate".to_string(), handle);
 
-    node.handle_loop()
+    node.main_loop()
 }
