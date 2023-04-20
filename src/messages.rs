@@ -9,7 +9,7 @@ pub mod topology;
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
 
-type MsgId = u32;
+pub type MsgId = u32;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CommonBody {

@@ -11,5 +11,4 @@ pub struct BroadcastBody<Val = i32> {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct BroadcastOkBody {
     pub in_reply_to: MsgId,
-    pub msg_id: MsgId,
 }

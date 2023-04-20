@@ -8,7 +8,7 @@ use fly_dist_rs::{
         broadcast::{BroadcastBody, BroadcastOkBody},
         read::{ReadBody, ReadOkBody},
         topology::{TopologyBody, TopologyOkBody},
-        Message,
+        Message, MsgId,
     },
     node::{Node, NodeId},
 };
@@ -26,14 +26,19 @@ pub enum Body {
     Topology(TopologyBody),
     TopologyOk(TopologyOkBody),
     Propagate {
+        msg_id: MsgId,
         value: Val,
         known_nodes: HashSet<NodeId>,
+    },
+    PropagateOk {
+        in_reply_to: MsgId,
     },
 }
 
 pub struct State {
     topology: HashMap<NodeId, Vec<NodeId>>,
     values: HashSet<Val>,
+    unconfirmed_msgs: HashMap<MsgId, Message<Body>>,
 }
 
 type BroadcastNode = Node<RefCell<State>, Body>;
@@ -44,34 +49,74 @@ impl State {
     }
 }
 
-fn on_recv_val(node: &BroadcastNode, val: Val, known_nodes: HashSet<String>) -> () {
-    let mut state = node.state.as_ref().unwrap().borrow_mut();
-    state.add_new_val(val);
+trait GetState<S> {
+    fn get_state(self: &Self) -> &S;
+}
 
-    let node_id = node.node_id();
+impl GetState<RefCell<State>> for BroadcastNode {
+    fn get_state(self: &Self) -> &RefCell<State> {
+        &self.state.as_ref().unwrap()
+    }
+}
 
-    let topology = &state.topology;
-    let friends: &Vec<_> = HashMap::get(topology, node_id).unwrap();
+trait PropagateMsg {
+    fn on_recv_val(self: &Self, val: Val, known_nodes: HashSet<String>) -> ();
+    fn resend_un_resp_msgs(self: &Self) -> ();
+}
 
-    let not_known_friends = friends.iter().filter(|&x| !known_nodes.contains(x));
+impl PropagateMsg for BroadcastNode {
+    fn on_recv_val(&self, val: Val, known_nodes: HashSet<String>) -> () {
+        let mut state = self.get_state().borrow_mut();
+        if state.values.contains(&val) {
+            return;
+        }
+        state.add_new_val(val);
 
-    let mut new_known_nodes: HashSet<String> = known_nodes.clone();
-    friends.iter().for_each(|n| {
-        new_known_nodes.insert(n.to_string());
-    });
-    new_known_nodes.insert(node_id.to_string());
+        let node_id = self.node_id();
 
-    let res_body = Body::Propagate {
-        value: val,
-        known_nodes: new_known_nodes,
-    };
+        let topology = &state.topology;
+        let friends: &Vec<_> = HashMap::get(topology, node_id).unwrap();
+        let not_known_friends: Vec<String> = friends
+            .iter()
+            .filter(|&x| !known_nodes.contains(x))
+            .map(|f| f.clone())
+            .collect();
 
-    for dest in not_known_friends {
-        node.send_msg(Message {
-            src: node_id.clone(),
-            dest: dest.clone(),
-            body: res_body.clone(),
-        })
+        let mut new_known_nodes: HashSet<String> = known_nodes.clone();
+        new_known_nodes.insert(node_id.to_string());
+
+        // friends.iter().for_each(|n| {
+        //     new_known_nodes.insert(n.to_string());
+        // });
+
+        let unconfirmed_msgs = &mut state.unconfirmed_msgs;
+
+        for dest in not_known_friends {
+            let propagate_msg_id = self.next_msg_id();
+            let propagate_body = Body::Propagate {
+                msg_id: propagate_msg_id,
+                value: val,
+                known_nodes: new_known_nodes.clone(),
+            };
+
+            let msg = Message {
+                src: node_id.clone(),
+                dest: dest.clone(),
+                body: propagate_body.clone(),
+            };
+            self.send_msg(&msg);
+
+            unconfirmed_msgs.insert(propagate_msg_id, msg);
+        }
+    }
+
+    fn resend_un_resp_msgs(self: &Self) {
+        let state = self.get_state().borrow_mut();
+        let unconfirmed_msgs = &state.unconfirmed_msgs;
+
+        for msg in unconfirmed_msgs.values() {
+            self.send_msg(&msg);
+        }
     }
 }
 
@@ -117,11 +162,10 @@ pub fn handle_broadcast(node: &BroadcastNode, msg: Message<Body>) -> Option<Mess
         _ => unreachable!(),
     };
 
-    on_recv_val(node, value, HashSet::new());
+    node.on_recv_val(value, HashSet::new());
 
     let body = Body::BroadcastOk(BroadcastOkBody {
         in_reply_to: msg_id,
-        msg_id: msg_id + 2,
     });
 
     Some(Message {
@@ -132,27 +176,46 @@ pub fn handle_broadcast(node: &BroadcastNode, msg: Message<Body>) -> Option<Mess
 }
 
 pub fn handle_propagate(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<Body>> {
-    let (value, known_nodes, ..) = match msg {
+    let (msg_id, value, known_nodes, src, dest) = match msg {
         Message {
             src,
             dest,
-            body: Body::Propagate { value, known_nodes },
-        } => (value, known_nodes, src, dest),
+            body:
+                Body::Propagate {
+                    msg_id,
+                    value,
+                    known_nodes,
+                },
+        } => (msg_id, value, known_nodes, src, dest),
         _ => unreachable!(),
     };
 
-    on_recv_val(node, value, known_nodes);
+    node.on_recv_val(value, known_nodes);
 
-    // let body = Body::BroadcastOk(BroadcastOkBody {
-    //     in_reply_to: msg_id,
-    //     msg_id: msg_id + 2,
-    // });
+    Some(Message {
+        src: dest,
+        dest: src,
+        body: Body::PropagateOk {
+            in_reply_to: msg_id,
+        },
+    })
+}
 
-    // Some(Message {
-    //     body,
-    //     src: dest,
-    //     dest: src,
-    // })
+pub fn handle_propagate_ok(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<Body>> {
+    let (in_reply_to, ..) = match msg {
+        Message {
+            src,
+            dest,
+            body: Body::PropagateOk { in_reply_to },
+        } => (in_reply_to, src, dest),
+        _ => unreachable!(),
+    };
+
+    let state = &mut node.get_state().borrow_mut();
+    let unconfirmed_msgs = &mut state.unconfirmed_msgs;
+
+    unconfirmed_msgs.remove(&in_reply_to);
+
     None
 }
 
@@ -185,13 +248,17 @@ fn main() {
     let state = State {
         topology: HashMap::new(),
         values: HashSet::new(),
+        unconfirmed_msgs: HashMap::new(),
     };
-    let mut node = Node::new().with_state(RefCell::new(state));
+    let mut node = Node::new()
+        .with_state(RefCell::new(state))
+        .on_end_loop(|n| n.resend_un_resp_msgs());
 
     node.add_handler("topology".to_string(), handle_topology);
     node.add_handler("broadcast".to_string(), handle_broadcast);
     node.add_handler("read".to_string(), handle_read);
     node.add_handler("propagate".to_string(), handle_propagate);
+    node.add_handler("propagate_ok".to_string(), handle_propagate_ok);
 
     node.main_loop()
 }

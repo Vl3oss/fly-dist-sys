@@ -2,7 +2,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::messages::init::{InitBody, InitOkBody};
-use crate::messages::{CommonBody, Message};
+use crate::messages::{CommonBody, Message, MsgId};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::stdin;
 
@@ -12,6 +13,7 @@ pub type NodeId = String;
 struct NodeConfig {
     node_id: NodeId,
     node_ids: Vec<NodeId>,
+    internal_msg_id: RefCell<MsgId>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -24,6 +26,7 @@ pub struct Node<S = (), B = CommonBody> {
     handlers: HashMap<String, Box<dyn Fn(&Node<S, B>, Message<B>) -> Option<Message<B>>>>,
     node_state: NodeState,
     pub state: Option<S>,
+    on_end_loop: Box<dyn Fn(&Self) -> ()>,
 }
 
 impl<S, B> Node<S, B>
@@ -35,6 +38,7 @@ where
             handlers: HashMap::new(),
             node_state: NodeState::Uninitialized,
             state: None,
+            on_end_loop: Box::new(|_| ()),
         }
     }
 
@@ -56,7 +60,11 @@ where
     }
 
     pub fn initialize(self: &mut Self, node_id: NodeId, node_ids: Vec<NodeId>) -> () {
-        self.node_state = NodeState::Initialized(NodeConfig { node_id, node_ids })
+        self.node_state = NodeState::Initialized(NodeConfig {
+            node_id,
+            node_ids,
+            internal_msg_id: RefCell::new(0),
+        })
     }
 
     pub fn node_id(self: &Self) -> &NodeId {
@@ -77,7 +85,18 @@ where
         node_ids
     }
 
-    fn try_handle_init(self: &mut Self, req_str: &String) -> Option<String> {
+    pub fn next_msg_id(self: &Self) -> MsgId {
+        let mut msg_id = match &self.node_state {
+            NodeState::Uninitialized => panic!("Node is uninitialized"),
+            NodeState::Initialized(config) => config.internal_msg_id.borrow_mut(),
+        };
+
+        *msg_id += 1;
+        *msg_id
+    }
+
+    fn try_init(self: &mut Self) -> () {
+        let req_str = self.read();
         let t = Message::extract_type_from_string(&req_str).unwrap();
 
         if t != "init" {
@@ -108,7 +127,7 @@ where
             body,
         };
 
-        Some(serde_json::to_string(&resp_message).unwrap())
+        self.send(serde_json::to_string(&resp_message).unwrap());
     }
 
     pub fn add_handler<H>(self: &mut Self, t: String, handler: H) -> ()
@@ -135,11 +154,13 @@ where
     }
 
     fn send(self: &Self, msg: String) -> () {
+        eprintln!("node {} sends {}", self.node_id(), msg);
+
         println!("{}", msg);
     }
 
-    pub fn send_msg(self: &Self, msg: Message<B>) -> () {
-        self.send(serde_json::to_string(&msg).unwrap());
+    pub fn send_msg(self: &Self, msg: &Message<B>) -> () {
+        self.send(serde_json::to_string(msg).unwrap());
     }
 
     pub fn with_state(mut self: Self, state: S) -> Self {
@@ -148,17 +169,30 @@ where
         self
     }
 
-    pub fn main_loop(self: &mut Self) -> ! {
-        loop {
-            let req_str = self.read();
-            let res_msg = match self.node_state {
-                NodeState::Uninitialized => self.try_handle_init(&req_str),
-                NodeState::Initialized { .. } => self.handle(&req_str),
-            };
+    pub fn on_end_loop<F>(mut self: Self, f: F) -> Self
+    where
+        F: Fn(&Self) -> () + 'static,
+    {
+        self.on_end_loop = Box::new(f);
 
-            if let Some(msg) = res_msg {
-                self.send(msg);
-            }
+        self
+    }
+
+    fn one_loop(self: &Self) -> () {
+        let req_str = self.read();
+        let res_msg = self.handle(&req_str);
+
+        if let Some(msg) = res_msg {
+            self.send(msg)
+        }
+    }
+
+    pub fn main_loop(self: &mut Self) -> ! {
+        self.try_init();
+        loop {
+            self.one_loop();
+
+            (self.on_end_loop)(self);
         }
     }
 }
