@@ -3,35 +3,43 @@ use serde::Serialize;
 
 use crate::messages::init::{InitBody, InitOkBody};
 use crate::messages::{CommonBody, Message, MsgId};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::stdin;
+use std::sync::Mutex;
 
 pub type NodeId = String;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct NodeConfig {
     node_id: NodeId,
     node_ids: Vec<NodeId>,
-    internal_msg_id: RefCell<MsgId>,
+    internal_msg_id: Mutex<MsgId>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 enum NodeState {
     Uninitialized,
     Initialized(NodeConfig),
 }
 
-pub struct Node<S = (), B = CommonBody> {
-    handlers: HashMap<String, Box<dyn Fn(&Node<S, B>, Message<B>) -> Option<Message<B>>>>,
+pub struct Node<S, B = CommonBody>
+where
+    S: Send,
+    B: Send + Serialize + DeserializeOwned,
+    Self: Send,
+{
+    handlers:
+        HashMap<String, Box<dyn Fn(&Node<S, B>, Message<B>) -> Option<Message<B>> + Send + Sync>>,
     node_state: NodeState,
     pub state: Option<S>,
-    on_end_loop: Box<dyn Fn(&Self) -> ()>,
+    on_end_loop: Box<dyn Fn(&Self) -> () + Send + Sync>,
 }
 
 impl<S, B> Node<S, B>
 where
-    B: Serialize + DeserializeOwned,
+    B: Serialize + DeserializeOwned + Send,
+    S: Send,
+    Self: Send,
 {
     pub fn new() -> Self {
         Node {
@@ -63,7 +71,7 @@ where
         self.node_state = NodeState::Initialized(NodeConfig {
             node_id,
             node_ids,
-            internal_msg_id: RefCell::new(0),
+            internal_msg_id: Mutex::new(0),
         })
     }
 
@@ -88,20 +96,15 @@ where
     pub fn next_msg_id(self: &Self) -> MsgId {
         let mut msg_id = match &self.node_state {
             NodeState::Uninitialized => panic!("Node is uninitialized"),
-            NodeState::Initialized(config) => config.internal_msg_id.borrow_mut(),
+            NodeState::Initialized(config) => config.internal_msg_id.lock().unwrap(),
         };
 
         *msg_id += 1;
         *msg_id
     }
 
-    fn try_init(self: &mut Self) -> () {
+    pub fn try_init(self: &mut Self) -> () {
         let req_str = self.read();
-        let t = Message::extract_type_from_string(&req_str).unwrap();
-
-        if t != "init" {
-            panic!("Invalid initialized message type: {}", t)
-        }
 
         let Message {
             body:
@@ -132,7 +135,7 @@ where
 
     pub fn add_handler<H>(self: &mut Self, t: String, handler: H) -> ()
     where
-        H: Fn(&Self, Message<B>) -> Option<Message<B>> + 'static,
+        H: Fn(&Self, Message<B>) -> Option<Message<B>> + 'static + Send + Sync,
     {
         HashMap::insert(&mut self.handlers, t, Box::new(handler));
     }
@@ -154,8 +157,6 @@ where
     }
 
     fn send(self: &Self, msg: String) -> () {
-        eprintln!("node {} sends {}", self.node_id(), msg);
-
         println!("{}", msg);
     }
 
@@ -171,14 +172,14 @@ where
 
     pub fn on_end_loop<F>(mut self: Self, f: F) -> Self
     where
-        F: Fn(&Self) -> () + 'static,
+        F: Fn(&Self) -> () + 'static + Send + Sync,
     {
         self.on_end_loop = Box::new(f);
 
         self
     }
 
-    fn one_loop(self: &Self) -> () {
+    pub fn one_loop(self: &Self) -> () {
         let req_str = self.read();
         let res_msg = self.handle(&req_str);
 
