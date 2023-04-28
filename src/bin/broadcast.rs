@@ -251,6 +251,10 @@ pub fn handle_read(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<B
     })
 }
 
+pub struct Config {
+    pub resend_every: time::Duration,
+}
+
 #[tokio::main]
 async fn main() {
     let state = State {
@@ -268,22 +272,12 @@ async fn main() {
 
     node.try_init();
     let node = Arc::new(node);
-
-    let mut interval = time::interval(time::Duration::from_millis(100));
+    let mut interval = time::interval(time::Duration::from_millis(1000));
     let resend_node = Arc::clone(&node);
     let resend_task = tokio::spawn(async move {
         loop {
             interval.tick().await;
             resend_node.resend_un_resp_msgs();
-            eprintln!(
-                "unconfirmed_msgs={:?}",
-                &resend_node
-                    .get_state()
-                    .lock()
-                    .unwrap()
-                    .unconfirmed_msgs
-                    .keys()
-            );
         }
     });
 
