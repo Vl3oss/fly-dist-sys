@@ -50,6 +50,13 @@ where
         }
     }
 
+    pub fn is_init(&self) -> bool {
+        match self.node_state {
+            NodeState::Uninitialized => false,
+            NodeState::Initialized(_) => true,
+        }
+    }
+
     fn read(self: &Self) -> String {
         let mut msg_raw = String::new();
         let _ = stdin().read_line(&mut msg_raw);
