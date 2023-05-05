@@ -175,7 +175,7 @@ pub fn handle_topology(node: &BroadcastNode, msg: Message<Body>) -> Option<Messa
 
     let body = Body::TopologyOk(TopologyOkBody {
         in_reply_to: msg_id,
-        msg_id: msg_id + 1,
+        msg_id: node.next_msg_id(),
     });
 
     Some(Message {
@@ -273,7 +273,7 @@ pub fn handle_read(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<B
 
     let body = Body::ReadOk(ReadOkBody {
         in_reply_to: msg_id,
-        msg_id: msg_id + 1,
+        msg_id: node.next_msg_id(),
         messages: state.values.clone().into_iter().collect(),
     });
 

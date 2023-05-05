@@ -64,16 +64,6 @@ where
         msg_raw
     }
 
-    pub fn read_loop<H>(self: &Self, on_msg: H) -> !
-    where
-        H: Fn(&Self, String) -> (),
-    {
-        loop {
-            let msg_str = self.read();
-            on_msg(self, msg_str);
-        }
-    }
-
     pub fn initialize(self: &mut Self, node_id: NodeId, node_ids: Vec<NodeId>) -> () {
         self.node_state = NodeState::Initialized(NodeConfig {
             node_id,
@@ -127,7 +117,7 @@ where
         self.initialize(node_id, node_ids);
 
         let body = InitOkBody::InitOk {
-            msg_id: msg_id + 1,
+            msg_id: self.next_msg_id(),
             in_reply_to: msg_id,
         };
 
