@@ -4,8 +4,7 @@ use super::MsgId;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErrorBody {
-    pub msg_id: MsgId,
-    in_reply_to: MsgId,
-    code: u32,
-    text: String,
+    pub in_reply_to: MsgId,
+    pub code: u32,
+    pub text: String,
 }

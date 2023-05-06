@@ -11,7 +11,7 @@ use serde_json::Result;
 
 pub type MsgId = u32;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommonBody {
     #[serde(rename = "type")]
     pub t: String,
@@ -19,8 +19,11 @@ pub struct CommonBody {
     in_reply_to: Option<MsgId>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Message<B = CommonBody> {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Message<B = CommonBody>
+where
+    B: Clone,
+{
     pub src: String,
     pub dest: String,
     pub body: B,

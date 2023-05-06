@@ -13,7 +13,7 @@ pub struct State {
     count: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Body {
     Generate(GenerateBody),

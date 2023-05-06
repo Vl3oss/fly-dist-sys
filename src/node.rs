@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::messages::init::{InitBody, InitOkBody};
 use crate::messages::{CommonBody, Message, MsgId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::stdin;
 use std::sync::Mutex;
 
@@ -25,7 +25,7 @@ enum NodeState {
 pub struct Node<S, B = CommonBody>
 where
     S: Send,
-    B: Send + Serialize + DeserializeOwned,
+    B: Send + Serialize + DeserializeOwned + Clone,
     Self: Send,
 {
     handlers:
@@ -33,11 +33,13 @@ where
     node_state: NodeState,
     pub state: Option<S>,
     on_end_loop: Box<dyn Fn(&Self) -> () + Send + Sync>,
+    callbacks: HashMap<MsgId, Box<dyn Fn(&Node<S, B>, Message<B>) -> () + Send + Sync>>,
+    unconfirmed_msgs: Vec<Message<B>>,
 }
 
 impl<S, B> Node<S, B>
 where
-    B: Serialize + DeserializeOwned + Send,
+    B: Serialize + DeserializeOwned + Send + Clone,
     S: Send,
     Self: Send,
 {
@@ -47,6 +49,8 @@ where
             node_state: NodeState::Uninitialized,
             state: None,
             on_end_loop: Box::new(|_| ()),
+            callbacks: HashMap::new(),
+            unconfirmed_msgs: Default::default(),
         }
     }
 
@@ -159,6 +163,16 @@ where
 
     pub fn send_msg(self: &Self, msg: &Message<B>) -> () {
         self.send(serde_json::to_string(msg).unwrap());
+    }
+
+    pub fn rpc_msg<F>(self: &mut Self, msg: &Message<B>, msg_id: MsgId, on_reply: F) -> ()
+    where
+        F: Fn(&Self, Message<B>) -> () + 'static + Send + Sync,
+    {
+        self.callbacks.insert(msg_id, Box::new(on_reply));
+
+        self.unconfirmed_msgs.push(msg.clone());
+        self.send_msg(msg);
     }
 
     pub fn with_state(mut self: Self, state: S) -> Self {

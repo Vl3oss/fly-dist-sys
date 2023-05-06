@@ -36,6 +36,7 @@ pub enum Body {
     },
 }
 
+#[derive(Clone)]
 pub struct State
 where
     Self: Send,
@@ -282,10 +283,6 @@ pub fn handle_read(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<B
         src: dest,
         dest: src,
     })
-}
-
-pub struct Config {
-    pub resend_every: time::Duration,
 }
 
 #[tokio::main]
