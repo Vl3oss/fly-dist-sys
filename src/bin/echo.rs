@@ -14,7 +14,7 @@ pub enum Body {
     EchoOk(EchoOkBody),
 }
 
-pub fn handle(node: &Node<(), Body>, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle(node: &Node<(), Body>, msg: Message<Body>) -> () {
     let (EchoBody { echo, msg_id }, src, dest) = match msg {
         Message {
             src,
@@ -30,11 +30,12 @@ pub fn handle(node: &Node<(), Body>, msg: Message<Body>) -> Option<Message<Body>
         echo,
     });
 
-    Some(Message {
+    let msg = Message {
         body,
         src: dest,
         dest: src,
-    })
+    };
+    node.send_msg(&msg);
 }
 
 fn main() {

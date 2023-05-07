@@ -33,4 +33,10 @@ impl Message {
     pub fn extract_type_from_string(msg: &String) -> Result<String> {
         serde_json::from_str::<Message<CommonBody>>(&msg).map(|m| m.body.t)
     }
+    pub fn extract_in_msg_id_from_string(msg: &String) -> Result<Option<MsgId>> {
+        serde_json::from_str::<Message<CommonBody>>(&msg).map(|m| m.body.msg_id)
+    }
+    pub fn extract_in_reply_to_from_string(msg: &String) -> Result<Option<MsgId>> {
+        serde_json::from_str::<Message<CommonBody>>(&msg).map(|m| m.body.in_reply_to)
+    }
 }

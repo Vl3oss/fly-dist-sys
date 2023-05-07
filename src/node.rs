@@ -28,13 +28,12 @@ where
     B: Send + Serialize + DeserializeOwned + Clone,
     Self: Send,
 {
-    handlers:
-        HashMap<String, Box<dyn Fn(&Node<S, B>, Message<B>) -> Option<Message<B>> + Send + Sync>>,
+    handlers: HashMap<String, Box<dyn 'static + Fn(&Node<S, B>, Message<B>) -> () + Send + Sync>>,
     node_state: NodeState,
     pub state: Option<S>,
-    on_end_loop: Box<dyn Fn(&Self) -> () + Send + Sync>,
-    callbacks: HashMap<MsgId, Box<dyn Fn(&Node<S, B>, Message<B>) -> () + Send + Sync>>,
-    unconfirmed_msgs: Vec<Message<B>>,
+    callbacks:
+        Mutex<HashMap<MsgId, Box<dyn 'static + Fn(&Node<S, B>, Message<B>) -> () + Send + Sync>>>,
+    unconfirmed_msgs: Mutex<Vec<Message<B>>>,
 }
 
 impl<S, B> Node<S, B>
@@ -48,8 +47,7 @@ where
             handlers: HashMap::new(),
             node_state: NodeState::Uninitialized,
             state: None,
-            on_end_loop: Box::new(|_| ()),
-            callbacks: HashMap::new(),
+            callbacks: Mutex::new(HashMap::new()),
             unconfirmed_msgs: Default::default(),
         }
     }
@@ -136,25 +134,33 @@ where
 
     pub fn add_handler<H>(self: &mut Self, t: String, handler: H) -> ()
     where
-        H: Fn(&Self, Message<B>) -> Option<Message<B>> + 'static + Send + Sync,
+        H: 'static + Fn(&Self, Message<B>) -> () + Send + Sync,
     {
         HashMap::insert(&mut self.handlers, t, Box::new(handler));
     }
 
-    fn handle(self: &Self, req_str: &String) -> Option<String> {
+    fn handle(self: &Self, req_str: &String) -> () {
         let t = Message::extract_type_from_string(&req_str).unwrap();
-        let handler = HashMap::get(&self.handlers, &t);
+        let mut handler = HashMap::get(&self.handlers, &t);
+
+        let mut callback = None;
+        if handler.is_none() && t.ends_with("ok") {
+            if let Ok(Some(in_reply_to)) = Message::extract_in_reply_to_from_string(&req_str) {
+                callback = self.callbacks.lock().unwrap().remove(&in_reply_to);
+            }
+
+            handler = callback.as_ref();
+        }
 
         if handler.is_none() {
             eprintln!("Skip handling unknown message type: '{}'", t);
-            return None;
+            return;
         }
         let handler = handler.unwrap();
 
         let req_msg = serde_json::from_str(req_str).unwrap();
-        let res_msg = (handler)(self, req_msg);
 
-        res_msg.map(|m| serde_json::to_string(&m).unwrap())
+        (handler)(self, req_msg);
     }
 
     fn send(self: &Self, msg: String) -> () {
@@ -165,13 +171,22 @@ where
         self.send(serde_json::to_string(msg).unwrap());
     }
 
-    pub fn rpc_msg<F>(self: &mut Self, msg: &Message<B>, msg_id: MsgId, on_reply: F) -> ()
+    pub fn rpc_msg<F>(self: &Self, msg: &Message<B>, on_reply: F) -> ()
     where
         F: Fn(&Self, Message<B>) -> () + 'static + Send + Sync,
     {
-        self.callbacks.insert(msg_id, Box::new(on_reply));
+        let msg_id = serde_json::to_string(msg)
+            .and_then(|s| Message::extract_in_msg_id_from_string(&s))
+            .unwrap()
+            .unwrap();
+        {
+            self.callbacks
+                .lock()
+                .unwrap()
+                .insert(msg_id, Box::new(on_reply));
+            self.unconfirmed_msgs.lock().unwrap().push(msg.clone());
+        }
 
-        self.unconfirmed_msgs.push(msg.clone());
         self.send_msg(msg);
     }
 
@@ -181,30 +196,16 @@ where
         self
     }
 
-    pub fn on_end_loop<F>(mut self: Self, f: F) -> Self
-    where
-        F: Fn(&Self) -> () + 'static + Send + Sync,
-    {
-        self.on_end_loop = Box::new(f);
-
-        self
-    }
-
     pub fn one_loop(self: &Self) -> () {
         let req_str = self.read();
-        let res_msg = self.handle(&req_str);
 
-        if let Some(msg) = res_msg {
-            self.send(msg)
-        }
+        self.handle(&req_str);
     }
 
     pub fn main_loop(self: &mut Self) -> ! {
         self.try_init();
         loop {
             self.one_loop();
-
-            (self.on_end_loop)(self);
         }
     }
 }

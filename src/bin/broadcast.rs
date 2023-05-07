@@ -161,7 +161,7 @@ impl PropagateMsg for BroadcastNode {
     }
 }
 
-pub fn handle_topology(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_topology(node: &BroadcastNode, msg: Message<Body>) -> () {
     let (TopologyBody { msg_id, topology }, src, dest) = match msg {
         Message {
             src,
@@ -179,14 +179,14 @@ pub fn handle_topology(node: &BroadcastNode, msg: Message<Body>) -> Option<Messa
         msg_id: node.next_msg_id(),
     });
 
-    Some(Message {
+    node.send_msg(&Message {
         body,
         src: dest,
         dest: src,
     })
 }
 
-pub fn handle_broadcast(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_broadcast(node: &BroadcastNode, msg: Message<Body>) -> () {
     let (
         BroadcastBody {
             msg_id,
@@ -209,14 +209,14 @@ pub fn handle_broadcast(node: &BroadcastNode, msg: Message<Body>) -> Option<Mess
         in_reply_to: msg_id,
     });
 
-    Some(Message {
+    node.send_msg(&Message {
         body,
         src: dest,
         dest: src,
     })
 }
 
-pub fn handle_propagate(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_propagate(node: &BroadcastNode, msg: Message<Body>) -> () {
     let (msg_id, values, known_nodes, src, dest) = match msg {
         Message {
             src,
@@ -233,7 +233,7 @@ pub fn handle_propagate(node: &BroadcastNode, msg: Message<Body>) -> Option<Mess
 
     node.on_recv_val(values, &known_nodes);
 
-    Some(Message {
+    node.send_msg(&Message {
         src: dest,
         dest: src,
         body: Body::PropagateOk {
@@ -242,7 +242,7 @@ pub fn handle_propagate(node: &BroadcastNode, msg: Message<Body>) -> Option<Mess
     })
 }
 
-pub fn handle_propagate_ok(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_propagate_ok(node: &BroadcastNode, msg: Message<Body>) -> () {
     let (in_reply_to, ..) = match msg {
         Message {
             src,
@@ -256,11 +256,9 @@ pub fn handle_propagate_ok(node: &BroadcastNode, msg: Message<Body>) -> Option<M
     let unconfirmed_msgs = &mut state.unconfirmed_msgs;
 
     unconfirmed_msgs.remove(&in_reply_to);
-
-    None
 }
 
-pub fn handle_read(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_read(node: &BroadcastNode, msg: Message<Body>) -> () {
     let (ReadBody { msg_id }, src, dest) = match msg {
         Message {
             src,
@@ -278,7 +276,7 @@ pub fn handle_read(node: &BroadcastNode, msg: Message<Body>) -> Option<Message<B
         messages: state.values.clone().into_iter().collect(),
     });
 
-    Some(Message {
+    node.send_msg(&Message {
         body,
         src: dest,
         dest: src,

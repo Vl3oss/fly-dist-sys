@@ -65,7 +65,7 @@ where
 
 type GNode = Node<Mutex<State>, Body>;
 
-pub fn handle_add(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_add(node: &GNode, msg: Message<Body>) -> () {
     let (msg_id, delta, src, dest) = match msg {
         Message {
             src,
@@ -80,7 +80,7 @@ pub fn handle_add(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
 
     drop(state);
 
-    Some(Message {
+    node.send_msg(&Message {
         src: dest,
         dest: src,
         body: Body::AddOk {
@@ -89,7 +89,7 @@ pub fn handle_add(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
     })
 }
 
-pub fn handle_read(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_read(node: &GNode, msg: Message<Body>) -> () {
     let (msg_id, src, dest) = match msg {
         Message {
             src,
@@ -103,7 +103,7 @@ pub fn handle_read(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
     let value = state.value;
     drop(state);
 
-    Some(Message {
+    node.send_msg(&Message {
         src: dest,
         dest: src,
         body: Body::ReadOk {
@@ -113,7 +113,7 @@ pub fn handle_read(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
     })
 }
 
-pub fn handle_read_ok_seq(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_read_ok_seq(node: &GNode, msg: Message<Body>) -> () {
     let (value, src, ..) = match msg {
         Message {
             src,
@@ -133,11 +133,9 @@ pub fn handle_read_ok_seq(node: &GNode, msg: Message<Body>) -> Option<Message<Bo
     state.value = value;
     eprintln!("set value from read seq >> {}", value);
     drop(state);
-
-    None
 }
 
-pub fn handle_cas_ok_seq(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_cas_ok_seq(node: &GNode, msg: Message<Body>) -> () {
     let (src, ..) = match msg {
         Message {
             src,
@@ -159,11 +157,9 @@ pub fn handle_cas_ok_seq(node: &GNode, msg: Message<Body>) -> Option<Message<Bod
         state.value, state.acc_delta
     );
     drop(state);
-
-    None
 }
 
-pub fn handle_error(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_error(node: &GNode, msg: Message<Body>) -> () {
     let (code, in_reply_to, src, ..) = match msg {
         Message {
             src,
@@ -193,8 +189,6 @@ pub fn handle_error(node: &GNode, msg: Message<Body>) -> Option<Message<Body>> {
             src, in_reply_to, code
         ),
     }
-
-    None
 }
 
 fn sync_val(node: &GNode) -> () {

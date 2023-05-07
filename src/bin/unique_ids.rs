@@ -20,7 +20,7 @@ pub enum Body {
     GenerateOk(GenerateOkBody),
 }
 
-pub fn handle(node: &Node<RefCell<State>, Body>, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle(node: &Node<RefCell<State>, Body>, msg: Message<Body>) -> () {
     let (GenerateBody { msg_id }, src, dest) = match msg {
         Message {
             src,
@@ -42,7 +42,7 @@ pub fn handle(node: &Node<RefCell<State>, Body>, msg: Message<Body>) -> Option<M
         id,
     });
 
-    Some(Message {
+    node.send_msg(&Message {
         body,
         src: dest,
         dest: src,

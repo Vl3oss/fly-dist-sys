@@ -62,7 +62,7 @@ where
 
 type KafkaNode = Node<Mutex<State>, Body>;
 
-pub fn handle_send(node: &KafkaNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_send(node: &KafkaNode, msg: Message<Body>) -> () {
     let (msg_id, key, msg, src, dest) = match msg {
         Message {
             src,
@@ -82,7 +82,7 @@ pub fn handle_send(node: &KafkaNode, msg: Message<Body>) -> Option<Message<Body>
         offset
     };
 
-    Some(Message {
+    node.send_msg(&Message {
         src: dest,
         dest: src,
         body: Body::SendOk {
@@ -92,7 +92,7 @@ pub fn handle_send(node: &KafkaNode, msg: Message<Body>) -> Option<Message<Body>
     })
 }
 
-pub fn handle_poll(node: &KafkaNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_poll(node: &KafkaNode, msg: Message<Body>) -> () {
     let (msg_id, offsets, src, dest) = match msg {
         Message {
             src,
@@ -126,7 +126,7 @@ pub fn handle_poll(node: &KafkaNode, msg: Message<Body>) -> Option<Message<Body>
         msgs
     };
 
-    Some(Message {
+    node.send_msg(&Message {
         src: dest,
         dest: src,
         body: Body::PollOk {
@@ -136,7 +136,7 @@ pub fn handle_poll(node: &KafkaNode, msg: Message<Body>) -> Option<Message<Body>
     })
 }
 
-pub fn handle_commit_offsets(node: &KafkaNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_commit_offsets(node: &KafkaNode, msg: Message<Body>) -> () {
     let (msg_id, offsets, src, dest) = match msg {
         Message {
             src,
@@ -153,7 +153,7 @@ pub fn handle_commit_offsets(node: &KafkaNode, msg: Message<Body>) -> Option<Mes
         }
     };
 
-    Some(Message {
+    node.send_msg(&Message {
         src: dest,
         dest: src,
         body: Body::CommitOffsetsOk {
@@ -162,10 +162,7 @@ pub fn handle_commit_offsets(node: &KafkaNode, msg: Message<Body>) -> Option<Mes
     })
 }
 
-pub fn handle_list_committed_offsets(
-    node: &KafkaNode,
-    msg: Message<Body>,
-) -> Option<Message<Body>> {
+pub fn handle_list_committed_offsets(node: &KafkaNode, msg: Message<Body>) -> () {
     let (msg_id, keys, src, dest) = match msg {
         Message {
             src,
@@ -190,7 +187,7 @@ pub fn handle_list_committed_offsets(
         offsets
     };
 
-    Some(Message {
+    node.send_msg(&Message {
         src: dest,
         dest: src,
         body: Body::ListCommittedOffsetsOk {
@@ -200,7 +197,7 @@ pub fn handle_list_committed_offsets(
     })
 }
 
-pub fn handle_error(_node: &KafkaNode, msg: Message<Body>) -> Option<Message<Body>> {
+pub fn handle_error(_node: &KafkaNode, msg: Message<Body>) -> () {
     let (code, in_reply_to, src, ..) = match msg {
         Message {
             src,
@@ -219,7 +216,6 @@ pub fn handle_error(_node: &KafkaNode, msg: Message<Body>) -> Option<Message<Bod
         ),
     }
 
-    None
 }
 
 #[tokio::main]
