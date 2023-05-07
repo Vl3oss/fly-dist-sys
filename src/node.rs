@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::messages::init::{InitBody, InitOkBody};
 use crate::messages::{CommonBody, Message, MsgId};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::stdin;
 use std::sync::Mutex;
 
