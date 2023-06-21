@@ -4,6 +4,7 @@ use serde::Serialize;
 use crate::messages::init::{InitBody, InitOkBody};
 use crate::messages::{CommonBody, Message, MsgId};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::io::stdin;
 use std::sync::Mutex;
 
@@ -25,20 +26,24 @@ enum NodeState {
 pub struct Node<S, B = CommonBody>
 where
     S: Send,
-    B: Send + Serialize + DeserializeOwned + Clone,
+    B: Send + Serialize + DeserializeOwned + Clone + Debug,
     Self: Send,
 {
     handlers: HashMap<String, Box<dyn 'static + Fn(&Node<S, B>, Message<B>) -> () + Send + Sync>>,
     node_state: NodeState,
     pub state: Option<S>,
-    callbacks:
-        Mutex<HashMap<MsgId, Box<dyn 'static + Fn(&Node<S, B>, Message<B>) -> () + Send + Sync>>>,
+    callbacks: Mutex<
+        HashMap<
+            (NodeId, MsgId),
+            Box<dyn 'static + Fn(&Node<S, B>, Message<B>) -> () + Send + Sync>,
+        >,
+    >,
     unconfirmed_msgs: Mutex<Vec<Message<B>>>,
 }
 
 impl<S, B> Node<S, B>
 where
-    B: Serialize + DeserializeOwned + Send + Clone,
+    B: Serialize + DeserializeOwned + Send + Clone + Debug,
     S: Send,
     Self: Send,
 {
@@ -140,17 +145,28 @@ where
     }
 
     fn handle(self: &Self, req_str: &String) -> () {
-        let t = Message::extract_type_from_string(&req_str).unwrap();
-        let mut handler = HashMap::get(&self.handlers, &t);
+        let Ok(Message {
+            src,
+            body: CommonBody { t, in_reply_to,.. },
+            ..
+        }) = Message::to_common_message(&req_str) else {
+            eprintln!("bad message format for RPC recv, {:?}", req_str);
+            return;
+        };
 
-        let mut callback = None;
-        if handler.is_none() && t.ends_with("ok") {
-            if let Ok(Some(in_reply_to)) = Message::extract_in_reply_to_from_string(&req_str) {
-                callback = self.callbacks.lock().unwrap().remove(&in_reply_to);
-            }
-
-            handler = callback.as_ref();
-        }
+        let handler = if t.ends_with("_ok") && in_reply_to.is_some() {
+            self.callbacks
+                .lock()
+                .unwrap()
+                .remove(&(src, in_reply_to.unwrap()))
+        } else {
+            None
+        };
+        let handler = if handler.is_none() {
+            self.handlers.get(&t)
+        } else {
+            handler.as_ref()
+        };
 
         if handler.is_none() {
             eprintln!("Skip handling unknown message type: '{}'", t);
@@ -175,15 +191,20 @@ where
     where
         F: Fn(&Self, Message<B>) -> () + 'static + Send + Sync,
     {
-        let msg_id = serde_json::to_string(msg)
-            .and_then(|s| Message::extract_in_msg_id_from_string(&s))
-            .unwrap()
-            .unwrap();
+        let Ok(Message {
+            dest,
+            body: CommonBody { msg_id: Some(msg_id), .. },
+            ..
+        }) = serde_json::to_string(msg).and_then(|s| Message::to_common_message(&s)) else {
+            eprintln!("bad message format for RPC, {:?}", msg);
+            return;
+        };
+
         {
             self.callbacks
                 .lock()
                 .unwrap()
-                .insert(msg_id, Box::new(on_reply));
+                .insert((dest, msg_id), Box::new(on_reply));
             self.unconfirmed_msgs.lock().unwrap().push(msg.clone());
         }
 

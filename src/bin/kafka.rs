@@ -10,8 +10,55 @@ use fly_dist_rs::{
 use serde::{Deserialize, Serialize};
 
 type Key = String;
-type Val = i32;
+type Val = usize;
 type Offset = usize;
+
+mod lin_kv {
+    use crate::*;
+
+    pub const ID: &str = "lin-kv";
+
+    pub fn write<F>(node: &KafkaNode, key: Key, value: Val, on_reply: F)
+    where
+        F: 'static + Fn(&KafkaNode, Message<Body>) -> () + Send + Sync,
+    {
+        node.rpc_msg(&msg, on_reply);
+    }
+
+    pub fn read<F>(node: &KafkaNode, key: Key, on_reply: F)
+    where
+        F: 'static + Fn(&KafkaNode, Message<Body>) -> () + Send + Sync,
+    {
+        let msg = Message {
+            src: node.node_id().to_string(),
+            dest: ID.to_string(),
+            body: Body::Read {
+                msg_id: node.next_msg_id(),
+                key,
+            },
+        };
+
+        node.rpc_msg(&msg, on_reply);
+    }
+
+    pub fn cas<F>(node: &KafkaNode, key: Key, from: Val, to: Val, on_reply: F)
+    where
+        F: 'static + Fn(&KafkaNode, Message<Body>) -> () + Send + Sync,
+    {
+        let msg = Message {
+            src: node.node_id().to_string(),
+            dest: ID.to_string(),
+            body: Body::Cas {
+                msg_id: node.next_msg_id(),
+                key,
+                from,
+                to,
+            },
+        };
+
+        node.rpc_msg(&msg, on_reply);
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -49,6 +96,32 @@ pub enum Body {
         offsets: HashMap<Key, Offset>,
     },
 
+    Read {
+        msg_id: MsgId,
+        key: Key,
+    },
+    ReadOk {
+        in_reply_to: MsgId,
+        value: Val,
+    },
+    Write {
+        msg_id: MsgId,
+        key: Key,
+        value: Val,
+    },
+    WriteOk {
+        in_reply_to: MsgId,
+    },
+    Cas {
+        msg_id: MsgId,
+        key: Key,
+        from: Val,
+        to: Val,
+    },
+    CasOk {
+        in_reply_to: MsgId,
+    },
+
     Error(ErrorBody),
 }
 
@@ -58,12 +131,13 @@ where
 {
     logs_db: HashMap<Key, Vec<Val>>,
     committed_offsets: HashMap<Key, Offset>,
+    latest_offsets: HashMap<Key, Offset>,
 }
 
 type KafkaNode = Node<Mutex<State>, Body>;
 
 pub fn handle_send(node: &KafkaNode, msg: Message<Body>) -> () {
-    let (msg_id, key, msg, src, dest) = match msg {
+    let (msg_id, key, value, src, dest) = match msg {
         Message {
             src,
             dest,
@@ -72,24 +146,58 @@ pub fn handle_send(node: &KafkaNode, msg: Message<Body>) -> () {
         _ => unreachable!(),
     };
 
-    let offset = {
+    {
         let mut state = node.state.as_ref().unwrap().lock().unwrap();
-        let logs = state.logs_db.entry(key).or_insert_with(|| Vec::new());
+        let from = state
+            .latest_offsets
+            .entry(key.clone())
+            .or_insert(0)
+            .to_owned();
+        let to = from.clone() + 1;
 
-        logs.push(msg);
+        let cas_key = format!("{}_next_offset", key.clone());
 
-        let offset = logs.len() - 1;
-        offset
+        lin_kv::cas(node, cas_key, from, to, move |node, msg| match msg.body {
+            Body::CasOk { .. } => {
+                let mut state = node.state.as_ref().unwrap().lock().unwrap();
+                let logs = state
+                    .logs_db
+                    .entry(key.clone())
+                    .or_insert_with(|| Vec::new());
+
+                logs.push(value);
+
+                let offset = logs.len() - 1;
+                node.send_msg(&Message {
+                    src: dest.clone(),
+                    dest: src.clone(),
+                    body: Body::SendOk {
+                        in_reply_to: msg_id,
+                        offset,
+                    },
+                })
+            }
+            Body::Error(ErrorBody {
+                in_reply_to,
+                code,
+                text,
+            }) => match code {
+                20 => {
+                    let msg = Message {
+                        src: node.node_id().to_string(),
+                        dest: ID.to_string(),
+                        body: Body::Write {
+                            msg_id: node.next_msg_id(),
+                            key,
+                            value,
+                        },
+                    };
+                    node.send_msg(msg);
+                }
+            },
+            _ => unreachable!(),
+        });
     };
-
-    node.send_msg(&Message {
-        src: dest,
-        dest: src,
-        body: Body::SendOk {
-            in_reply_to: msg_id,
-            offset,
-        },
-    })
 }
 
 pub fn handle_poll(node: &KafkaNode, msg: Message<Body>) -> () {
@@ -215,7 +323,6 @@ pub fn handle_error(_node: &KafkaNode, msg: Message<Body>) -> () {
             src, in_reply_to, code
         ),
     }
-
 }
 
 #[tokio::main]
@@ -223,6 +330,7 @@ async fn main() {
     let state = State {
         logs_db: HashMap::new(),
         committed_offsets: HashMap::new(),
+        latest_offsets: HashMap::new(),
     };
     let mut node = Node::new().with_state(Mutex::new(state));
 
